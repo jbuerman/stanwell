@@ -1,0 +1,91 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "stanwell"
+version = "0.1.0"
+license = "MIT"
+description = "Application to helps understand working time and distribution based on Toggl time tracking data."
+requires-python = ">=3.12"
+dependencies = [
+    "loguru>=0.7.3",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.3",
+    "pandas>=3.0.6",
+    "python-dateutil>=2.9.0.post0",
+    "pyyaml>=6.0.3",
+    "seaborn>=0.13.2",
+    "streamlit>=1.64.0",
+    "typer>=0.27.2",
+]
+
+authors = [
+    {name = "Jan Buermann", email = ""},
+]
+
+[project.scripts]
+stanwell = "stanwell.ui.cli.cli:main"
+
+# -------------------------
+# Hatch build configuration
+# (required for src/ layout)
+# -------------------------
+[tool.hatch.build.targets.wheel]
+packages = ["src/stanwell"]
+
+[dependency-groups]
+dev = [
+    "black>=26.10.1",
+    "mypy>=2.4.0",
+    "pandas-stubs>=3.0.5.260914",
+    "pytest>=9.1.1",
+    "ruff>=0.16.10",
+    "types-python-dateutil>=2.9.0.20260807",
+    "types-pyyaml>=6.0.12.20260906",
+    "types-requests>=2.33.0.20260906",
+    "types-seaborn>=0.13.2.20260728",
+]
+docs = [
+    "docutils>=0.22.4",
+    "myst-parser>=5.1.0",
+    "sphinx>=9.1.0",
+    "sphinx-paramlinks>=0.6.0",
+    "sphinx-rtd-theme>=3.1.0",
+]
+
+[tool.black]
+line-length = 88
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "F",
+    "E",
+    "W",
+    "I",
+    "B",
+    "PL",
+    "D",
+    "N",
+]
+ignore = ["E501"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.pylint]
+max-args = 7
+max-positional-args = 7
+
+[tool.ruff.lint.per-file-ignores]
+"docs/conf.py" = ["D"]
+"tests/**/*.py" = ["D", "PLR2004"]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: tests requiring access to external services",
+]
+addopts = "-m 'not integration'"

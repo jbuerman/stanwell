@@ -1,0 +1,28 @@
+# Stanwell user data
+config.yml
+config.yaml
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+.venv/
+
+# Sphinx
+docs/_build/
+docs/_latex/
+docs/api/generated
+
+# Testing
+.env.integration
+
+# Pycharm
+.idea/
+
+# Emacs
+*~
