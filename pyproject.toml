@@ -4,9 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stanwell"
-version = "0.1.0"
+version = "0.1.1"
 license = "MIT"
-description = "Application to helps understand working time and distribution based on Toggl time tracking data."
+description = "Understand working time and how it is distributed using Toggl time-tracking data."
+readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "loguru>=0.7.3",
