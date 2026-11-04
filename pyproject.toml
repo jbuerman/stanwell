@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "stanwell"
-version = "0.1.1"
+version = "0.1.2"
 license = "MIT"
 description = "Understand working time and how it is distributed using Toggl time-tracking data."
 readme = "README.md"

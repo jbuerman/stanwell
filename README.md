@@ -1,11 +1,15 @@
 [![CI](https://github.com/jbuerman/stanwell/actions/workflows/ci.yml/badge.svg)](https://github.com/jbuerman/stanwell/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Documentation Status](https://app.readthedocs.org/projects/stanwell/badge/?version=latest)](https://stanwell.readthedocs.io/en/latest/)
 
 # Stanwell
 
 *Have enthusiasm. Work sustainably.*
 
-Stanwell analyses working time recorded in Toggl to help you understand how much you work and how that time is distributed across projects, activities and working patterns.
+Stanwell analyses working time recorded in Toggl to help you understand how much you work and how that time
+is distributed across projects, activities and working patterns.
+
+**Documentation:** [https://stanwell.readthedocs.io](https://stanwell.readthedocs.io/en/latest/)
 
 ## Quick setup
 

@@ -1,11 +1,15 @@
 # Changelog
 
+## [0.1.2] - 2026-11-04
+### Added
+- RTD documentation.
+
 ## [0.1.1] - 2026-11-04
 ### Fixed
-- Package description metadata
+- Package description metadata.
 
 ## [0.1.0] - 2026-11-04
-Initial public release
+Initial public release.
 
 <!---
 TEMPLATE
