@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import date, datetime, timedelta
+from typing import Any
 
 DateRange = tuple[date, date]
 
@@ -47,31 +48,45 @@ def _group_consecutive_dates(
 ) -> list[DateRange]:
     """Group dates into consecutive inclusive ranges.
 
+    Sort the supplied dates and combine adjacent dates into inclusive
+    start-and-end ranges. Duplicate dates do not create additional
+    ranges.
+
     Parameters
     ----------
-    dates : list[date]
+    dates : list[datetime.date]
         Dates to group.
 
     Returns
     -------
     list[DateRange]
-        Consecutive date ranges represented by start and end dates.
-
+        Consecutive date ranges represented by inclusive start and end
+        dates. An empty input produces an empty list.
     """
-    if not dates:
-        return []
-
-    sorted_dates = sorted(dates)
-
     ranges: list[DateRange] = []
 
-    range_start = sorted_dates[0]
-    previous_date = sorted_dates[0]
+    sorted_dates = sorted(set(dates))
 
-    for current_date in sorted_dates[1:]:
-        if current_date == previous_date + timedelta(days=1):
-            previous_date = current_date
-            continue
+    if sorted_dates:
+        range_start = sorted_dates[0]
+        previous_date = sorted_dates[0]
+
+        for current_date in sorted_dates[1:]:
+            is_consecutive = current_date == previous_date + timedelta(days=1)
+
+            if is_consecutive:
+                previous_date = current_date
+
+            else:
+                ranges.append(
+                    (
+                        range_start,
+                        previous_date,
+                    )
+                )
+
+                range_start = current_date
+                previous_date = current_date
 
         ranges.append(
             (
@@ -79,16 +94,6 @@ def _group_consecutive_dates(
                 previous_date,
             )
         )
-
-        range_start = current_date
-        previous_date = current_date
-
-    ranges.append(
-        (
-            range_start,
-            previous_date,
-        )
-    )
 
     return ranges
 
@@ -288,3 +293,132 @@ def find_missing_ranges(
     missing_days = [day for day in requested_days if day not in covered_days]
 
     return _group_consecutive_dates(missing_days)
+
+
+def pending_sync_ranges(
+    connection,
+    start_day,
+    end_day,
+):
+    """Return all date ranges that currently require synchronisation.
+
+    Combine dates that have never been successfully synchronised with
+    dates that have been marked for refresh. Consecutive dates are
+    returned as ranges regardless of why each individual date requires
+    synchronisation.
+
+    Parameters
+    ----------
+    connection : sqlite3.Connection
+        Open connection to the Stanwell database.
+    start_day : datetime.date
+        First date to consider for synchronisation.
+    end_day : datetime.date
+        Last date to consider for synchronisation.
+
+    Returns
+    -------
+    list[DateRange]
+        Consecutive ranges containing every date that either has no
+        successful coverage record or is marked as pending refresh.
+        Returns an empty list when no dates require synchronisation.
+
+    Raises
+    ------
+    ValueError
+        If ``end_day`` is earlier than ``start_day``.
+
+    Notes
+    -----
+    A date may require synchronisation for either of two reasons:
+
+    * it has never been successfully downloaded and therefore has no
+      entry in ``covered_days``;
+    * it has previously been downloaded but is marked with
+      ``refresh_pending = 1`` in ``data_coverage``.
+
+    These states remain distinct in the database, but callers do not
+    need to distinguish between them when deciding which dates to
+    synchronise.
+    """
+    if end_day < start_day:
+        raise ValueError("end_day must not be before start_day")
+
+    missing_ranges = find_missing_ranges(
+        connection,
+        start_day,
+        end_day,
+    )
+
+    refresh_ranges = pending_refresh_ranges(
+        connection,
+    )
+
+    required_days: set[date] = set()
+
+    for range_start, range_end in missing_ranges:
+        current_date = range_start
+
+        while current_date <= range_end:
+            required_days.add(current_date)
+
+            current_date += timedelta(days=1)
+
+    for range_start, range_end in refresh_ranges:
+        clipped_start = max(
+            range_start,
+            start_day,
+        )
+
+        clipped_end = min(
+            range_end,
+            end_day,
+        )
+
+        current_date = clipped_start
+
+        while current_date <= clipped_end:
+            required_days.add(current_date)
+
+            current_date += timedelta(days=1)
+
+    result = _group_consecutive_dates(list(required_days))
+
+    return result
+
+
+def summarise_sync_ranges(
+    ranges: list[tuple[date, date]],
+) -> dict[str, Any]:
+    """Summarise date ranges that still require synchronisation.
+
+    Parameters
+    ----------
+    ranges : list[tuple[datetime.date, datetime.date]]
+        Consecutive date ranges that require synchronisation.
+
+    Returns
+    -------
+    dict[str, Any]
+        Summary containing the number of individual pending dates,
+        the first pending date and the last pending date. The boundary
+        dates are returned as ISO-formatted strings.
+
+    Notes
+    -----
+    The returned count is the number of calendar dates represented by
+    the ranges, rather than the number of ranges.
+    """
+    pending_count = sum(
+        (range_end - range_start).days + 1 for range_start, range_end in ranges
+    )
+
+    first_pending = ranges[0][0].isoformat() if ranges else None
+
+    last_pending = ranges[-1][1].isoformat() if ranges else None
+
+    return {
+        "pending_count": pending_count,
+        "first_pending": first_pending,
+        "last_pending": last_pending,
+    }

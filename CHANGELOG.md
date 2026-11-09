@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+### Added
+- `sync-pending` replaces `refresh-pending` and `sync-missing` and downloads dates that are either missing or have been
+    marked as refresh by `refresh`.
+
+### Removed
+- `refresh-pending` covered by `sync-pending`.
+- `refresh-pending` covered by `sync-pending`.
+
 ## [0.1.2] - 2026-11-04
 ### Added
 - RTD documentation.

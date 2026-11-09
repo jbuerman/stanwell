@@ -94,7 +94,7 @@ data:
 
 .. code-block:: console
 
-   stanwell sync-missing
+   stanwell sync-pending
 
 This downloads data for dates that are not already stored in the local
 database.

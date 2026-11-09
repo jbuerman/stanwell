@@ -18,19 +18,15 @@ from typing import Annotated, Any
 import typer
 import yaml
 
-from stanwell.data_repository.data_coverage import (
-    get_pending_refresh_days,
-)
 from stanwell.data_repository.database_schema import (
     initialise_database,
 )
 from stanwell.data_repository.db import connect_db, sync_exceptions
 from stanwell.toggl.client import TogglClient
 from stanwell.toggl.sync import (
-    refresh_pending,
     refresh_period,
     refresh_recent,
-    sync_missing,
+    sync_pending,
 )
 from stanwell.ui.cli.cli_util import (
     get_dashboard_path,
@@ -182,60 +178,6 @@ def cmd_init(
 
 
 @app.command(
-    "sync-missing",
-    help=("Download Toggl data for dates " "not yet stored locally."),
-)
-def cmd_sync_missing(
-    context: typer.Context,
-) -> None:
-    """Download periods not yet covered by the local database.
-
-    Parameters
-    ----------
-    context : typer.Context
-        Typer context containing the configuration path.
-
-    """
-    config, connection = load_config_and_open_database_from_context(context)
-
-    try:
-        typer.echo("Checking for missing Toggl data...")
-
-        result = sync_missing(
-            connection,
-            config,
-        )
-
-        if result["status"] == "quota_exhausted":
-            typer.secho(
-                "Toggl quota exhausted.",
-                fg=typer.colors.YELLOW,
-                bold=True,
-            )
-            typer.echo(
-                result.get(
-                    "message",
-                    ("All data retrieved before " "the limit was stored."),
-                )
-            )
-        else:
-            typer.secho(
-                "Missing-data sync complete.",
-                fg=typer.colors.GREEN,
-            )
-
-    except Exception as error:
-        typer.secho(
-            f"Sync failed: {error}",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=1) from None
-    finally:
-        connection.close()
-
-
-@app.command(
     "refresh-recent",
     help="Refresh recently tracked Toggl data.",
 )
@@ -280,7 +222,7 @@ def cmd_refresh_recent(
             typer.echo(
                 result.get(
                     "message",
-                    ("All data retrieved before " "the limit was stored."),
+                    "All data retrieved before the limit was stored.",
                 )
             )
         else:
@@ -302,7 +244,7 @@ def cmd_refresh_recent(
 
 @app.command(
     "refresh",
-    help="Refresh Toggl data for a specific period.",
+    help="Force refresh Toggl data for a specific period.",
 )
 def cmd_refresh(
     context: typer.Context,
@@ -317,6 +259,11 @@ def cmd_refresh(
 ) -> None:
     """Refresh Toggl data for a specified date range.
 
+    Mark the requested period for refresh and retrieve the latest data
+    available from Toggl. Successfully retrieved data is retained if
+    the API quota is exhausted. Any outstanding dates can subsequently
+    be completed with ``stanwell sync-pending``.
+
     Parameters
     ----------
     context : typer.Context
@@ -325,14 +272,13 @@ def cmd_refresh(
         First date to refresh, in ISO format.
     end_day : str
         Last date to refresh, in ISO format.
-
     """
     config, connection = load_config_and_open_database_from_context(context)
 
     exit_code = 0
 
     try:
-        typer.echo(f"Refreshing {start_day} " f"to {end_day}...")
+        typer.echo(f"Refreshing {start_day} to {end_day}...")
 
         result = refresh_period(
             connection,
@@ -343,37 +289,31 @@ def cmd_refresh(
 
         if result["status"] == "quota_exhausted":
             typer.secho(
-                ("Refresh incomplete: Toggl API " "quota exhausted."),
+                "Refresh incomplete: Toggl API quota exhausted.",
                 fg=typer.colors.YELLOW,
                 bold=True,
             )
 
-            pending_days = get_pending_refresh_days(connection)
-
-            typer.echo(f"{len(pending_days)} date(s) " "remain pending.")
-
-            if len(pending_days) > 0:
-                typer.echo(
-                    "Pending range: " f"{pending_days[0]} to " f"{pending_days[-1]}"
-                )
+            typer.echo("All successfully retrieved data has been saved.")
 
             quota_resets_in_seconds = result.get("quota_resets_in_seconds")
 
             if quota_resets_in_seconds is not None:
-                reset_minutes = (
-                    round(
-                        int(quota_resets_in_seconds) / 60,
-                        0,
-                    )
-                    + 1
+                reset_minutes = max(
+                    1,
+                    round(int(quota_resets_in_seconds) / 60),
                 )
 
-                typer.echo("Quota resets in approximately " f"{reset_minutes} minutes.")
+                typer.echo(
+                    "Quota resets in approximately " f"{reset_minutes} minute(s)."
+                )
 
             typer.echo()
-            typer.echo("Run refresh-pending to continue.")
+
+            typer.echo("Run 'stanwell sync-pending' after " "the quota has reset.")
 
             exit_code = 2
+
         else:
             typer.secho(
                 "Refresh complete.",
@@ -385,7 +325,9 @@ def cmd_refresh(
             f"Refresh failed: {error}",
             err=True,
         )
+
         exit_code = 1
+
     finally:
         connection.close()
 
@@ -395,7 +337,7 @@ def cmd_refresh(
 
 @app.command(
     "status",
-    help=("Show the status and date range " "of the local database."),
+    help="Show the status and date range of the local database.",
 )
 def cmd_status(
     context: typer.Context,
@@ -439,7 +381,7 @@ def cmd_status(
 
 @app.command(
     "dashboard",
-    help=("Open the interactive working-time " "dashboard."),
+    help="Open the interactive working-time dashboard.",
 )
 def cmd_dashboard(
     context: typer.Context,
@@ -485,90 +427,104 @@ def cmd_dashboard(
 
 
 @app.command(
-    "refresh-pending",
-    help=("Retry dates left pending by an " "incomplete refresh."),
+    "sync-pending",
+    help="Synchronise all dates that currently require downloading.",
 )
-def cmd_refresh_pending(
+def cmd_sync_pending(
     context: typer.Context,
 ) -> None:
-    """Retry dates awaiting completion after an interrupted refresh.
+    """Synchronise all outstanding Toggl data.
 
-    Parameters
-    ----------
-    context : typer.Context
-        Typer context containing the configuration path.
+    Download dates that have not yet been successfully synchronised
+    and retry dates left pending by an interrupted refresh.
 
+    Successfully retrieved data is retained if the Toggl API quota is
+    exhausted. Running this command again after the quota has reset
+    resumes the outstanding synchronisation.
     """
     config, connection = load_config_and_open_database_from_context(context)
 
-    exit_code = 0
-
     try:
-        pending_days = get_pending_refresh_days(connection)
+        typer.echo("Checking for pending Toggl data...")
 
-        if len(pending_days) == 0:
-            typer.echo("There are no pending refreshes.")
-        else:
+        result = sync_pending(
+            connection,
+            config,
+        )
+
+        if result["status"] == "quota_exhausted":
+            typer.secho(
+                "Toggl quota exhausted.",
+                fg=typer.colors.YELLOW,
+                bold=True,
+            )
+
+            typer.echo("All successfully retrieved data has been saved.")
+
+            pending_count = int(result["pending_count"])
+
+            if pending_count > 0:
+                typer.echo(f"{pending_count} date(s) remain pending.")
+
+                typer.echo(
+                    "Pending range: "
+                    f"{result['first_pending']} to "
+                    f"{result['last_pending']}"
+                )
+
+            resets_in = result.get("quota_resets_in_seconds")
+
+            if resets_in is not None:
+                minutes = max(
+                    1,
+                    round(float(resets_in) / 60),
+                )
+
+                typer.echo("Quota resets in approximately " f"{minutes} minute(s).")
+
+            typer.echo()
+
             typer.echo(
-                f"Refreshing {len(pending_days)} "
-                "pending date(s) "
-                f"from {pending_days[0]} "
-                f"to {pending_days[-1]}..."
+                "Run 'stanwell sync-pending' again " "after the quota has reset."
             )
 
-            result = refresh_pending(
-                connection,
-                config,
+            raise typer.Exit(code=2)
+
+        periods_processed = int(
+            result.get(
+                "periods_processed",
+                0,
+            )
+        )
+
+        if periods_processed == 0:
+            typer.secho(
+                "All data is already synchronised.",
+                fg=typer.colors.GREEN,
             )
 
-            if result["status"] == "quota_exhausted":
-                typer.secho(
-                    ("Refresh incomplete: Toggl " "API quota exhausted."),
-                    fg=typer.colors.YELLOW,
-                    bold=True,
-                )
+        else:
+            typer.secho(
+                "Synchronisation complete.",
+                fg=typer.colors.GREEN,
+            )
 
-                typer.echo(f"{result['pending_count']} " "date(s) remain pending.")
+            typer.echo(f"{periods_processed} pending " "range(s) processed.")
 
-                first_pending = result.get("first_pending")
-                last_pending = result.get("last_pending")
+    except typer.Exit:
+        raise
 
-                if first_pending is not None and last_pending is not None:
-                    typer.echo(
-                        "Pending range: " f"{first_pending} to " f"{last_pending}"
-                    )
+    except Exception as error:
+        typer.secho(
+            f"Synchronisation failed: {error}",
+            fg=typer.colors.RED,
+            err=True,
+        )
 
-                quota_resets_in_seconds = result.get("quota_resets_in_seconds")
-
-                if quota_resets_in_seconds is not None:
-                    reset_minutes = (
-                        round(
-                            int(quota_resets_in_seconds) / 60,
-                            0,
-                        )
-                        + 1
-                    )
-
-                    typer.echo(
-                        "Quota resets in approximately " f"{reset_minutes} minutes."
-                    )
-
-                typer.echo()
-                typer.echo("Run refresh-pending again " "to continue.")
-
-                exit_code = 2
-            else:
-                typer.secho(
-                    "Pending refresh complete.",
-                    fg=typer.colors.GREEN,
-                )
-                typer.echo(f"{result['entries_saved']} " "entries processed.")
+        raise typer.Exit(code=1) from None
 
     finally:
         connection.close()
-
-    if exit_code != 0:
-        raise typer.Exit(code=exit_code)
 
 
 @app.command(
@@ -625,7 +581,7 @@ def cmd_toggl_workspaces(
         workspaces = client.fetch_workspaces()
     except Exception as error:
         typer.secho(
-            ("Could not retrieve Toggl " f"workspaces: {error}"),
+            f"Could not retrieve Toggl workspaces: {error}",
             fg=typer.colors.RED,
             err=True,
         )

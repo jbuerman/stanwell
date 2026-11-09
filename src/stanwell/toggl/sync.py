@@ -19,9 +19,8 @@ from zoneinfo import ZoneInfo
 from dateutil.parser import isoparse
 
 from stanwell.data_repository.data_coverage import (
-    find_missing_ranges,
-    get_pending_refresh_days,
-    pending_refresh_ranges,
+    pending_sync_ranges,
+    summarise_sync_ranges,
 )
 from stanwell.data_repository.data_util import date_ranges
 from stanwell.data_repository.projects import load_project_names
@@ -359,88 +358,88 @@ def refresh_recent(
     return result
 
 
-def refresh_pending(
-    connection: sqlite3.Connection,
-    config: Mapping[str, Any],
-) -> SyncResult:
-    """Retry all dates currently marked as pending.
-
-    Consecutive pending dates are grouped into ranges and processed in
-    chronological order. Processing stops when the Toggl quota is exhausted.
-
-    Parameters
-    ----------
-    connection : sqlite3.Connection
-        Connection to the application's SQLite database.
-    config : collections.abc.Mapping
-        Application configuration.
-
-    Returns
-    -------
-    dict[str, Any]
-        Aggregate refresh result.
-
-    """
-    refresh_ranges = pending_refresh_ranges(connection)
-    ranges_attempted = 0
-    request_count = 0
-    entry_count = 0
-    quota_result: SyncResult | None = None
-
-    for range_start, range_end in refresh_ranges:
-        if quota_result is None:
-            ranges_attempted += 1
-            range_result = refresh_period(
-                connection,
-                config,
-                range_start,
-                range_end,
-                mode="pending",
-            )
-            request_count += int(range_result.get("requests", 0))
-            entry_count += int(range_result.get("entries_saved", 0))
-
-            if range_result["status"] == "quota_exhausted":
-                quota_result = range_result
-
-    remaining_pending_days = get_pending_refresh_days(connection)
-
-    if quota_result is None:
-        if len(refresh_ranges) == 0:
-            message = "There are no pending refreshes."
-        else:
-            message = "Pending refresh completed."
-
-        result: SyncResult = {
-            "status": "ok",
-            "ranges_attempted": ranges_attempted,
-            "requests": request_count,
-            "entries_saved": entry_count,
-            "pending_count": len(remaining_pending_days),
-            "message": message,
-        }
-    else:
-        if len(remaining_pending_days) > 0:
-            first_pending = remaining_pending_days[0].isoformat()
-            last_pending = remaining_pending_days[-1].isoformat()
-        else:
-            first_pending = None
-            last_pending = None
-
-        result = {
-            "status": "quota_exhausted",
-            "ranges_attempted": ranges_attempted,
-            "requests": request_count,
-            "entries_saved": entry_count,
-            "pending_count": len(remaining_pending_days),
-            "first_pending": first_pending,
-            "last_pending": last_pending,
-            "quota_remaining": quota_result.get("quota_remaining"),
-            "quota_resets_in_seconds": quota_result.get("quota_resets_in_seconds"),
-            "message": quota_result.get("message"),
-        }
-
-    return result
+# def refresh_pending(
+#     connection: sqlite3.Connection,
+#     config: Mapping[str, Any],
+# ) -> SyncResult:
+#     """Retry all dates currently marked as pending.
+#
+#     Consecutive pending dates are grouped into ranges and processed in
+#     chronological order. Processing stops when the Toggl quota is exhausted.
+#
+#     Parameters
+#     ----------
+#     connection : sqlite3.Connection
+#         Connection to the application's SQLite database.
+#     config : collections.abc.Mapping
+#         Application configuration.
+#
+#     Returns
+#     -------
+#     dict[str, Any]
+#         Aggregate refresh result.
+#
+#     """
+#     refresh_ranges = pending_refresh_ranges(connection)
+#     ranges_attempted = 0
+#     request_count = 0
+#     entry_count = 0
+#     quota_result: SyncResult | None = None
+#
+#     for range_start, range_end in refresh_ranges:
+#         if quota_result is None:
+#             ranges_attempted += 1
+#             range_result = refresh_period(
+#                 connection,
+#                 config,
+#                 range_start,
+#                 range_end,
+#                 mode="pending",
+#             )
+#             request_count += int(range_result.get("requests", 0))
+#             entry_count += int(range_result.get("entries_saved", 0))
+#
+#             if range_result["status"] == "quota_exhausted":
+#                 quota_result = range_result
+#
+#     remaining_pending_days = get_pending_refresh_days(connection)
+#
+#     if quota_result is None:
+#         if len(refresh_ranges) == 0:
+#             message = "There are no pending refreshes."
+#         else:
+#             message = "Pending refresh completed."
+#
+#         result: SyncResult = {
+#             "status": "ok",
+#             "ranges_attempted": ranges_attempted,
+#             "requests": request_count,
+#             "entries_saved": entry_count,
+#             "pending_count": len(remaining_pending_days),
+#             "message": message,
+#         }
+#     else:
+#         if len(remaining_pending_days) > 0:
+#             first_pending = remaining_pending_days[0].isoformat()
+#             last_pending = remaining_pending_days[-1].isoformat()
+#         else:
+#             first_pending = None
+#             last_pending = None
+#
+#         result = {
+#             "status": "quota_exhausted",
+#             "ranges_attempted": ranges_attempted,
+#             "requests": request_count,
+#             "entries_saved": entry_count,
+#             "pending_count": len(remaining_pending_days),
+#             "first_pending": first_pending,
+#             "last_pending": last_pending,
+#             "quota_remaining": quota_result.get("quota_remaining"),
+#             "quota_resets_in_seconds": quota_result.get("quota_resets_in_seconds"),
+#             "message": quota_result.get("message"),
+#         }
+#
+#     return result
 
 
 def _prepare_project_names(
@@ -881,33 +880,140 @@ def synchronise_projects(
     return request_count
 
 
-def sync_missing(
+# def sync_missing(
+#     connection: sqlite3.Connection,
+#     config: Mapping[str, Any],
+#     start_day: str | None = None,
+#     end_day: str | None = None,
+# ) -> SyncResult:
+#     """Download uncovered periods in chronological order.
+#
+#     Processing stops when the Toggl quota is exhausted. Completed periods
+#     remain committed and covered.
+#
+#     Parameters
+#     ----------
+#     connection : sqlite3.Connection
+#         Connection to the application's SQLite database.
+#     config : collections.abc.Mapping
+#         Application configuration.
+#     start_day : str, optional
+#         First date to inspect. Defaults to ``tracking_start_date``.
+#     end_day : str, optional
+#         Last date to inspect. Defaults to yesterday.
+#
+#     Returns
+#     -------
+#     dict[str, Any]
+#         Aggregate synchronisation result.
+#
+#     """
+#     if start_day is None:
+#         period_start = date.fromisoformat(config["tracking_start_date"])
+#     else:
+#         period_start = date.fromisoformat(start_day)
+#
+#     if end_day is None:
+#         period_end = date.today() - timedelta(days=1)
+#     else:
+#         period_end = date.fromisoformat(end_day)
+#
+#     missing_ranges = find_missing_ranges(
+#         connection,
+#         period_start,
+#         period_end,
+#     )
+#     period_results: list[SyncResult] = []
+#     quota_was_exhausted = False
+#
+#     for missing_start, missing_end in missing_ranges:
+#         if quota_was_exhausted is False:
+#             period_result = refresh_period(
+#                 connection,
+#                 config,
+#                 missing_start,
+#                 missing_end,
+#                 mode="missing",
+#             )
+#             period_results.append(period_result)
+#
+#             if period_result["status"] == "quota_exhausted":
+#                 quota_was_exhausted = True
+#
+#     if quota_was_exhausted:
+#         result: SyncResult = {
+#             "status": "quota_exhausted",
+#             "requested_start": period_start.isoformat(),
+#             "requested_end": period_end.isoformat(),
+#             "periods_processed": len(period_results),
+#             "results": period_results,
+#             "message": (
+#                 "The available Toggl quota was exhausted. "
+#                 "All complete chunks and all entries received "
+#                 "from complete pages have been saved. Run "
+#                 "sync_missing(connection, config) again after "
+#                 "the quota has reset."
+#             ),
+#         }
+#     else:
+#         result = {
+#             "status": "ok",
+#             "requested_start": period_start.isoformat(),
+#             "requested_end": period_end.isoformat(),
+#             "periods_processed": len(period_results),
+#             "results": period_results,
+#             "message": "All missing periods were downloaded.",
+#         }
+#
+#     return result
+
+
+def sync_pending(
     connection: sqlite3.Connection,
     config: Mapping[str, Any],
     start_day: str | None = None,
     end_day: str | None = None,
 ) -> SyncResult:
-    """Download uncovered periods in chronological order.
+    """Synchronise all dates that currently require retrieval.
 
-    Processing stops when the Toggl quota is exhausted. Completed periods
-    remain committed and covered.
+    Download dates that have not yet been successfully synchronised
+    and dates that have been marked for refresh. Consecutive dates are
+    combined into ranges and processed chronologically.
+
+    Processing stops when the available Toggl API quota is exhausted.
+    Successfully completed work remains committed, while dates that
+    still require retrieval remain available to a subsequent call.
 
     Parameters
     ----------
     connection : sqlite3.Connection
-        Connection to the application's SQLite database.
+        Connection to the Stanwell SQLite database.
     config : collections.abc.Mapping
         Application configuration.
     start_day : str, optional
-        First date to inspect. Defaults to ``tracking_start_date``.
+        First date to consider, in ISO format. Defaults to the
+        configured ``tracking_start_date``.
     end_day : str, optional
-        Last date to inspect. Defaults to yesterday.
+        Last date to consider, in ISO format. Defaults to yesterday.
 
     Returns
     -------
-    dict[str, Any]
-        Aggregate synchronisation result.
+    SyncResult
+        Synchronisation result including status, processed results,
+        quota information and a summary of dates still requiring
+        synchronisation.
 
+    Raises
+    ------
+    ValueError
+        If the requested end date is before the start date.
+
+    Notes
+    -----
+    Whether a date requires synchronisation because it has never been
+    downloaded or because an earlier refresh was interrupted is an
+    implementation detail. Both states are processed through
+    ``refresh_period``.
     """
     if start_day is None:
         period_start = date.fromisoformat(config["tracking_start_date"])
@@ -919,51 +1025,72 @@ def sync_missing(
     else:
         period_end = date.fromisoformat(end_day)
 
-    missing_ranges = find_missing_ranges(
+    if period_end < period_start:
+        raise ValueError("end_day must not be before start_day")
+
+    sync_ranges = pending_sync_ranges(
         connection,
         period_start,
         period_end,
     )
-    period_results: list[SyncResult] = []
-    quota_was_exhausted = False
 
-    for missing_start, missing_end in missing_ranges:
-        if quota_was_exhausted is False:
+    period_results: list[SyncResult] = []
+
+    quota_exhausted = False
+    quota_remaining = None
+    quota_resets_in_seconds = None
+
+    for range_start, range_end in sync_ranges:
+        if not quota_exhausted:
             period_result = refresh_period(
                 connection,
                 config,
-                missing_start,
-                missing_end,
-                mode="missing",
+                range_start,
+                range_end,
+                mode="pending",
             )
+
             period_results.append(period_result)
 
             if period_result["status"] == "quota_exhausted":
-                quota_was_exhausted = True
+                quota_exhausted = True
 
-    if quota_was_exhausted:
-        result: SyncResult = {
-            "status": "quota_exhausted",
-            "requested_start": period_start.isoformat(),
-            "requested_end": period_end.isoformat(),
-            "periods_processed": len(period_results),
-            "results": period_results,
-            "message": (
-                "The available Toggl quota was exhausted. "
-                "All complete chunks and all entries received "
-                "from complete pages have been saved. Run "
-                "sync_missing(connection, config) again after "
-                "the quota has reset."
-            ),
-        }
+                quota_remaining = period_result.get("quota_remaining")
+
+                quota_resets_in_seconds = period_result.get("quota_resets_in_seconds")
+
+    remaining_ranges = pending_sync_ranges(
+        connection,
+        period_start,
+        period_end,
+    )
+
+    pending_summary = summarise_sync_ranges(remaining_ranges)
+
+    if quota_exhausted:
+        status = "quota_exhausted"
+
+        message = (
+            "The available Toggl quota was exhausted. "
+            "All successfully retrieved data has been saved."
+        )
     else:
-        result = {
-            "status": "ok",
-            "requested_start": period_start.isoformat(),
-            "requested_end": period_end.isoformat(),
-            "periods_processed": len(period_results),
-            "results": period_results,
-            "message": "All missing periods were downloaded.",
-        }
+        status = "ok"
+
+        message = "All pending data has been synchronised."
+
+    result: SyncResult = {
+        "status": status,
+        "requested_start": period_start.isoformat(),
+        "requested_end": period_end.isoformat(),
+        "periods_processed": len(period_results),
+        "results": period_results,
+        "quota_remaining": quota_remaining,
+        "quota_resets_in_seconds": quota_resets_in_seconds,
+        "pending_count": pending_summary["pending_count"],
+        "first_pending": pending_summary["first_pending"],
+        "last_pending": pending_summary["last_pending"],
+        "message": message,
+    }
 
     return result

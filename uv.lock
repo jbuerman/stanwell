@@ -1742,6 +1742,19 @@ wheels = [
 ]
 
 [[package]]
+name = "sphinx-issues"
+version = "6.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "sphinx", version = "9.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "sphinx", version = "9.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/95/4e/c9a46b19c90d4d3cdcbcaf0e4d392b09e5b41ec75b134bc5a1aa192be94f/sphinx_issues-6.0.0.tar.gz", hash = "sha256:f40f2c71cecb2068c7f06a53825778b674d58d8395b4ea60551a36164d2988e3", size = 15230, upload-time = "2026-03-13T17:23:32.501Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/29/8a/28333d222ac31539aa0d818db0790077e5a6a408f933b4bf64f7d3440ffc/sphinx_issues-6.0.0-py3-none-any.whl", hash = "sha256:c7ed2915059526d02022733985a7712d4b2b64a707e16b98294ed9758e64df4f", size = 8362, upload-time = "2026-03-13T17:23:31.031Z" },
+]
+
+[[package]]
 name = "sphinx-paramlinks"
 version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1836,7 +1849,7 @@ wheels = [
 
 [[package]]
 name = "stanwell"
-version = "0.1.0"
+version = "0.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "loguru" },
@@ -1867,6 +1880,7 @@ docs = [
     { name = "myst-parser" },
     { name = "sphinx", version = "9.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "sphinx", version = "9.2.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
+    { name = "sphinx-issues" },
     { name = "sphinx-paramlinks" },
     { name = "sphinx-rtd-theme" },
 ]
@@ -1900,6 +1914,7 @@ docs = [
     { name = "docutils", specifier = ">=0.22.4" },
     { name = "myst-parser", specifier = ">=5.1.0" },
     { name = "sphinx", specifier = ">=9.1.0" },
+    { name = "sphinx-issues", specifier = ">=6.0.0" },
     { name = "sphinx-paramlinks", specifier = ">=0.6.0" },
     { name = "sphinx-rtd-theme", specifier = ">=3.1.0" },
 ]

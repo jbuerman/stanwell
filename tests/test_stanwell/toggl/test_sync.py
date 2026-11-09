@@ -339,49 +339,6 @@ class TestRefresh:
 
         assert all(row["refreshed_at"] is not None for row in rows)
 
-    def test_refresh_pending_clears_pending_dates(
-        self,
-        conn,
-        cfg,
-        mock_refresh_dependencies,
-        monkeypatch,
-    ):
-        conn.executemany(
-            """
-            INSERT INTO data_coverage (day,
-                                       refresh_pending)
-            VALUES (?, 1)
-            """,
-            [
-                ("2026-09-01",),
-                ("2026-09-02",),
-            ],
-        )
-
-        conn.commit()
-
-        monkeypatch.setattr(
-            sync,
-            "fetch_range",
-            lambda cfg, start, end: [],
-        )
-
-        result = sync.refresh_pending(
-            conn,
-            cfg,
-        )
-
-        assert result["status"] == "ok"
-        assert result["pending_count"] == 0
-
-        rows = conn.execute("""
-            SELECT refresh_pending
-            FROM data_coverage
-            ORDER BY day
-            """).fetchall()
-
-        assert all(row["refresh_pending"] == 0 for row in rows)
-
 
 class TestPrepareProjectNames:
     def test_returns_project_names_and_request_count(
@@ -746,3 +703,480 @@ class TestCreateQuotaExhaustedResult:
             "quota_exhausted",
             result["message"],
         )
+
+
+class TestSyncPending:
+    def test_sync_pending_does_nothing_when_nothing_is_pending(
+        self,
+        monkeypatch,
+    ):
+        """Return successfully without refreshing when no dates require sync."""
+        connection = Mock()
+
+        config = {
+            "tracking_start_date": "2026-10-01",
+        }
+
+        pending_mock = Mock(
+            side_effect=[
+                [],
+                [],
+            ]
+        )
+
+        refresh_mock = Mock()
+
+        monkeypatch.setattr(
+            sync,
+            "pending_sync_ranges",
+            pending_mock,
+        )
+
+        monkeypatch.setattr(
+            sync,
+            "refresh_period",
+            refresh_mock,
+        )
+
+        result = sync.sync_pending(
+            connection,
+            config,
+            start_day="2026-10-01",
+            end_day="2026-10-10",
+        )
+
+        assert pending_mock.call_args_list == [
+            (
+                (
+                    connection,
+                    date(2026, 10, 1),
+                    date(2026, 10, 10),
+                ),
+                {},
+            ),
+            (
+                (
+                    connection,
+                    date(2026, 10, 1),
+                    date(2026, 10, 10),
+                ),
+                {},
+            ),
+        ]
+
+        refresh_mock.assert_not_called()
+
+        assert result["status"] == "ok"
+        assert result["periods_processed"] == 0
+        assert result["results"] == []
+        assert result["pending_count"] == 0
+        assert result["first_pending"] is None
+        assert result["last_pending"] is None
+        assert result["quota_remaining"] is None
+        assert result["quota_resets_in_seconds"] is None
+
+    def test_sync_pending_processes_single_range(
+        self,
+        monkeypatch,
+    ):
+        """Process a single range requiring synchronisation."""
+        connection = Mock()
+
+        config = {
+            "tracking_start_date": "2026-10-01",
+        }
+
+        pending_mock = Mock(
+            side_effect=[
+                [
+                    (
+                        date(2026, 10, 3),
+                        date(2026, 10, 5),
+                    ),
+                ],
+                [],
+            ]
+        )
+
+        monkeypatch.setattr(
+            sync,
+            "pending_sync_ranges",
+            pending_mock,
+        )
+
+        refresh_result = {
+            "status": "ok",
+            "requests": 1,
+            "entries_saved": 10,
+        }
+
+        refresh_mock = Mock(return_value=refresh_result)
+
+        monkeypatch.setattr(
+            sync,
+            "refresh_period",
+            refresh_mock,
+        )
+
+        result = sync.sync_pending(
+            connection,
+            config,
+            start_day="2026-10-01",
+            end_day="2026-10-10",
+        )
+
+        refresh_mock.assert_called_once_with(
+            connection,
+            config,
+            date(2026, 10, 3),
+            date(2026, 10, 5),
+            mode="pending",
+        )
+
+        assert pending_mock.call_count == 2
+
+        assert result["status"] == "ok"
+        assert result["periods_processed"] == 1
+        assert result["results"] == [
+            refresh_result,
+        ]
+        assert result["pending_count"] == 0
+        assert result["first_pending"] is None
+        assert result["last_pending"] is None
+
+    def test_sync_pending_processes_multiple_ranges_in_order(
+        self,
+        monkeypatch,
+    ):
+        """Process all required ranges in chronological order."""
+        connection = Mock()
+
+        config = {
+            "tracking_start_date": "2026-10-01",
+        }
+
+        pending_mock = Mock(
+            side_effect=[
+                [
+                    (
+                        date(2026, 10, 1),
+                        date(2026, 10, 3),
+                    ),
+                    (
+                        date(2026, 10, 8),
+                        date(2026, 10, 10),
+                    ),
+                ],
+                [],
+            ]
+        )
+
+        monkeypatch.setattr(
+            sync,
+            "pending_sync_ranges",
+            pending_mock,
+        )
+
+        first_result = {
+            "status": "ok",
+        }
+
+        second_result = {
+            "status": "ok",
+        }
+
+        refresh_mock = Mock(
+            side_effect=[
+                first_result,
+                second_result,
+            ]
+        )
+
+        monkeypatch.setattr(
+            sync,
+            "refresh_period",
+            refresh_mock,
+        )
+
+        result = sync.sync_pending(
+            connection,
+            config,
+            start_day="2026-10-01",
+            end_day="2026-10-10",
+        )
+
+        assert refresh_mock.call_args_list == [
+            (
+                (
+                    connection,
+                    config,
+                    date(2026, 10, 1),
+                    date(2026, 10, 3),
+                ),
+                {
+                    "mode": "pending",
+                },
+            ),
+            (
+                (
+                    connection,
+                    config,
+                    date(2026, 10, 8),
+                    date(2026, 10, 10),
+                ),
+                {
+                    "mode": "pending",
+                },
+            ),
+        ]
+
+        assert result["status"] == "ok"
+        assert result["periods_processed"] == 2
+        assert result["results"] == [
+            first_result,
+            second_result,
+        ]
+        assert result["pending_count"] == 0
+        assert result["first_pending"] is None
+        assert result["last_pending"] is None
+
+    def test_sync_pending_stops_processing_after_quota_exhaustion(
+        self,
+        monkeypatch,
+    ):
+        """Do not process later ranges after the Toggl quota is exhausted."""
+        connection = Mock()
+
+        config = {
+            "tracking_start_date": "2026-10-01",
+        }
+
+        outstanding_ranges = [
+            (
+                date(2026, 10, 1),
+                date(2026, 10, 3),
+            ),
+            (
+                date(2026, 10, 8),
+                date(2026, 10, 10),
+            ),
+            (
+                date(2026, 10, 15),
+                date(2026, 10, 17),
+            ),
+        ]
+
+        pending_mock = Mock(
+            side_effect=[
+                outstanding_ranges,
+                outstanding_ranges,
+            ]
+        )
+
+        monkeypatch.setattr(
+            sync,
+            "pending_sync_ranges",
+            pending_mock,
+        )
+
+        quota_result = {
+            "status": "quota_exhausted",
+            "quota_remaining": 0,
+            "quota_resets_in_seconds": 420,
+        }
+
+        refresh_mock = Mock(return_value=quota_result)
+
+        monkeypatch.setattr(
+            sync,
+            "refresh_period",
+            refresh_mock,
+        )
+
+        result = sync.sync_pending(
+            connection,
+            config,
+            start_day="2026-10-01",
+            end_day="2026-10-20",
+        )
+
+        assert refresh_mock.call_count == 1
+
+        refresh_mock.assert_called_once_with(
+            connection,
+            config,
+            date(2026, 10, 1),
+            date(2026, 10, 3),
+            mode="pending",
+        )
+
+        assert result["status"] == "quota_exhausted"
+        assert result["periods_processed"] == 1
+        assert result["quota_remaining"] == 0
+        assert result["quota_resets_in_seconds"] == 420
+
+        assert result["pending_count"] == 9
+        assert result["first_pending"] == "2026-10-01"
+        assert result["last_pending"] == "2026-10-17"
+
+    def test_sync_pending_preserves_completed_results_before_quota_exhaustion(
+        self,
+        monkeypatch,
+    ):
+        """Preserve successful results produced before quota exhaustion."""
+        connection = Mock()
+
+        config = {
+            "tracking_start_date": "2026-10-01",
+        }
+
+        pending_mock = Mock(
+            side_effect=[
+                [
+                    (
+                        date(2026, 10, 1),
+                        date(2026, 10, 3),
+                    ),
+                    (
+                        date(2026, 10, 8),
+                        date(2026, 10, 10),
+                    ),
+                ],
+                [
+                    (
+                        date(2026, 10, 8),
+                        date(2026, 10, 10),
+                    ),
+                ],
+            ]
+        )
+
+        monkeypatch.setattr(
+            sync,
+            "pending_sync_ranges",
+            pending_mock,
+        )
+
+        successful_result = {
+            "status": "ok",
+            "entries_saved": 12,
+        }
+
+        quota_result = {
+            "status": "quota_exhausted",
+            "entries_saved": 4,
+            "quota_remaining": 0,
+            "quota_resets_in_seconds": 300,
+        }
+
+        refresh_mock = Mock(
+            side_effect=[
+                successful_result,
+                quota_result,
+            ]
+        )
+
+        monkeypatch.setattr(
+            sync,
+            "refresh_period",
+            refresh_mock,
+        )
+
+        result = sync.sync_pending(
+            connection,
+            config,
+            start_day="2026-10-01",
+            end_day="2026-10-10",
+        )
+
+        assert refresh_mock.call_count == 2
+
+        assert result["status"] == "quota_exhausted"
+        assert result["periods_processed"] == 2
+
+        assert result["results"] == [
+            successful_result,
+            quota_result,
+        ]
+
+        assert result["quota_remaining"] == 0
+        assert result["quota_resets_in_seconds"] == 300
+
+        assert result["pending_count"] == 3
+        assert result["first_pending"] == "2026-10-08"
+        assert result["last_pending"] == "2026-10-10"
+
+    def test_sync_pending_uses_tracking_start_date_by_default(
+        self,
+        monkeypatch,
+    ):
+        """Use the configured tracking start when no start date is supplied."""
+        connection = Mock()
+
+        config = {
+            "tracking_start_date": "2025-10-01",
+        }
+
+        pending_mock = Mock(
+            side_effect=[
+                [],
+                [],
+            ]
+        )
+
+        monkeypatch.setattr(
+            sync,
+            "pending_sync_ranges",
+            pending_mock,
+        )
+
+        result = sync.sync_pending(
+            connection,
+            config,
+            end_day="2026-10-31",
+        )
+
+        assert pending_mock.call_args_list == [
+            (
+                (
+                    connection,
+                    date(2025, 10, 1),
+                    date(2026, 10, 31),
+                ),
+                {},
+            ),
+            (
+                (
+                    connection,
+                    date(2025, 10, 1),
+                    date(2026, 10, 31),
+                ),
+                {},
+            ),
+        ]
+
+        assert result["requested_start"] == "2025-10-01"
+        assert result["requested_end"] == "2026-10-31"
+
+        assert result["pending_count"] == 0
+
+    def test_sync_pending_rejects_reversed_period(
+        self,
+    ):
+        """Reject a period whose end date precedes its start date."""
+        connection = Mock()
+
+        config = {
+            "tracking_start_date": "2026-10-01",
+        }
+
+        with pytest.raises(
+            ValueError,
+            match="end_day must not be before start_day",
+        ):
+            sync.sync_pending(
+                connection,
+                config,
+                start_day="2026-10-10",
+                end_day="2026-10-01",
+            )

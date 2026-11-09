@@ -54,9 +54,12 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.viewcode",
     "sphinx_paramlinks",
+    "sphinx_issues",
     "myst_parser",
     "cli_commands",
 ]
+
+issues_github_path = "jbuerman/stanwell"
 
 autosummary_generate = True
 

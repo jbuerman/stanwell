@@ -22,7 +22,7 @@ stanwell init
 Synchronise historical data. Repeat until all missing data has been downloaded:
 
 ```bash
-stanwell sync-missing
+stanwell sync-pending
 ```
 
 Refresh recent entries when needed:

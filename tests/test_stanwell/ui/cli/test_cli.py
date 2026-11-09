@@ -1,4 +1,3 @@
-from datetime import date
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -141,115 +140,6 @@ def test_status_displays_none_for_empty_database(
     assert "Latest entry: none" in result.output
 
 
-def test_sync_missing_success(
-    runner,
-    monkeypatch,
-    mock_database,
-):
-    config, connection = mock_database
-
-    monkeypatch.setattr(
-        cli,
-        "load_config_and_open_database_from_context",
-        lambda context: (
-            config,
-            connection,
-        ),
-    )
-
-    monkeypatch.setattr(
-        cli,
-        "sync_missing",
-        lambda connection, config: {
-            "status": "ok",
-        },
-    )
-
-    result = runner.invoke(
-        cli.app,
-        ["sync-missing"],
-    )
-
-    assert result.exit_code == 0
-    assert "Missing-data sync complete." in result.output
-
-    connection.close.assert_called_once()
-
-
-def test_sync_missing_reports_quota_exhaustion(
-    runner,
-    monkeypatch,
-    mock_database,
-):
-    config, connection = mock_database
-
-    monkeypatch.setattr(
-        cli,
-        "load_config_and_open_database_from_context",
-        lambda context: (
-            config,
-            connection,
-        ),
-    )
-
-    monkeypatch.setattr(
-        cli,
-        "sync_missing",
-        lambda connection, config: {
-            "status": "quota_exhausted",
-            "message": "Quota exhausted.",
-        },
-    )
-
-    result = runner.invoke(
-        cli.app,
-        ["sync-missing"],
-    )
-
-    assert result.exit_code == 0
-    assert "Toggl quota exhausted." in result.output
-    assert "Quota exhausted." in result.output
-
-
-def test_sync_missing_failure_returns_exit_code_one(
-    runner,
-    monkeypatch,
-    mock_database,
-):
-    config, connection = mock_database
-
-    monkeypatch.setattr(
-        cli,
-        "load_config_and_open_database_from_context",
-        lambda context: (
-            config,
-            connection,
-        ),
-    )
-
-    def fail_sync(
-        connection,
-        config,
-    ):
-        raise RuntimeError("Something failed")
-
-    monkeypatch.setattr(
-        cli,
-        "sync_missing",
-        fail_sync,
-    )
-
-    result = runner.invoke(
-        cli.app,
-        ["sync-missing"],
-    )
-
-    assert result.exit_code == 1
-    assert "Sync failed: Something failed" in result.output
-
-    connection.close.assert_called_once()
-
-
 def test_refresh_recent_success(
     runner,
     monkeypatch,
@@ -337,6 +227,7 @@ def test_refresh_quota_exhaustion_returns_exit_code_two(
     monkeypatch,
     mock_database,
 ):
+    """Report quota exhaustion and direct the user to sync pending data."""
     config, connection = mock_database
 
     monkeypatch.setattr(
@@ -357,105 +248,26 @@ def test_refresh_quota_exhaustion_returns_exit_code_two(
         },
     )
 
-    monkeypatch.setattr(
-        cli,
-        "get_pending_refresh_days",
-        lambda connection: [
-            date(2026, 10, 3),
-            date(2026, 10, 4),
-        ],
-    )
-
     result = runner.invoke(
         cli.app,
         [
             "refresh",
-            "2026-10-01",
-            "2026-10-07",
+            "2026-10-03",
+            "2026-10-04",
         ],
     )
 
     assert result.exit_code == 2
-    assert "2 date(s) remain pending." in result.output
-    assert "Pending range: 2026-10-03 " "to 2026-10-04" in result.output
+
+    assert "Refresh incomplete: Toggl API quota exhausted." in result.output
+
+    assert "All successfully retrieved data has been saved." in result.output
+
+    assert "Quota resets in approximately 2 minute(s)." in result.output
+
+    assert "Run 'stanwell sync-pending' after the quota has reset." in result.output
 
     connection.close.assert_called_once()
-
-
-def test_refresh_pending_when_nothing_is_pending(
-    runner,
-    monkeypatch,
-    mock_database,
-):
-    config, connection = mock_database
-
-    monkeypatch.setattr(
-        cli,
-        "load_config_and_open_database_from_context",
-        lambda context: (
-            config,
-            connection,
-        ),
-    )
-
-    monkeypatch.setattr(
-        cli,
-        "get_pending_refresh_days",
-        lambda connection: [],
-    )
-
-    result = runner.invoke(
-        cli.app,
-        ["refresh-pending"],
-    )
-
-    assert result.exit_code == 0
-    assert "There are no pending refreshes." in result.output
-
-    connection.close.assert_called_once()
-
-
-def test_refresh_pending_success(
-    runner,
-    monkeypatch,
-    mock_database,
-):
-    config, connection = mock_database
-
-    monkeypatch.setattr(
-        cli,
-        "load_config_and_open_database_from_context",
-        lambda context: (
-            config,
-            connection,
-        ),
-    )
-
-    monkeypatch.setattr(
-        cli,
-        "get_pending_refresh_days",
-        lambda connection: [
-            date(2026, 10, 19),
-        ],
-    )
-
-    monkeypatch.setattr(
-        cli,
-        "refresh_pending",
-        lambda connection, config: {
-            "status": "ok",
-            "entries_saved": 5,
-        },
-    )
-
-    result = runner.invoke(
-        cli.app,
-        ["refresh-pending"],
-    )
-
-    assert result.exit_code == 0
-    assert "Pending refresh complete." in result.output
-    assert "5 entries processed." in result.output
 
 
 def test_dashboard_reports_missing_dashboard(
@@ -553,106 +365,305 @@ def test_toggl_workspaces_uses_environment_token(
     )
 
 
-def test_config_opens_config_file(
-    runner,
-    tmp_path,
-    monkeypatch,
-):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "timezone: Europe/London\n",
-        encoding="utf-8",
-    )
-
-    run_mock = Mock(
-        return_value=SimpleNamespace(
-            returncode=0,
+class TestConfig:
+    def test_config_opens_config_file(
+        self,
+        runner,
+        tmp_path,
+        monkeypatch,
+    ):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "timezone: Europe/London\n",
+            encoding="utf-8",
         )
-    )
-    monkeypatch.setattr(
-        cli.subprocess,
-        "run",
-        run_mock,
-    )
 
-    result = runner.invoke(
-        cli.app,
-        [
-            "--config",
-            str(config_path),
-            "config",
-        ],
-    )
-
-    assert result.exit_code == 0
-
-    run_mock.assert_called_once_with(
-        [
-            "xdg-open",
-            str(config_path),
-        ],
-        check=False,
-    )
-
-
-def test_config_rejects_missing_config_file(
-    runner,
-    tmp_path,
-    monkeypatch,
-):
-    config_path = tmp_path / "missing.yaml"
-
-    run_mock = Mock()
-    monkeypatch.setattr(
-        cli.subprocess,
-        "run",
-        run_mock,
-    )
-
-    result = runner.invoke(
-        cli.app,
-        [
-            "--config",
-            str(config_path),
-            "config",
-        ],
-    )
-
-    assert result.exit_code == 1
-    assert "Configuration file not found" in result.output
-    assert str(config_path) in result.output
-
-    run_mock.assert_not_called()
-
-
-def test_config_returns_xdg_open_exit_code(
-    runner,
-    tmp_path,
-    monkeypatch,
-):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        "timezone: Europe/London\n",
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(
-        cli.subprocess,
-        "run",
-        Mock(
+        run_mock = Mock(
             return_value=SimpleNamespace(
-                returncode=1,
+                returncode=0,
             )
-        ),
-    )
+        )
+        monkeypatch.setattr(
+            cli.subprocess,
+            "run",
+            run_mock,
+        )
 
-    result = runner.invoke(
-        cli.app,
-        [
-            "--config",
-            str(config_path),
-            "config",
-        ],
-    )
+        result = runner.invoke(
+            cli.app,
+            [
+                "--config",
+                str(config_path),
+                "config",
+            ],
+        )
 
-    assert result.exit_code == 1
+        assert result.exit_code == 0
+
+        run_mock.assert_called_once_with(
+            [
+                "xdg-open",
+                str(config_path),
+            ],
+            check=False,
+        )
+
+    def test_config_rejects_missing_config_file(
+        self,
+        runner,
+        tmp_path,
+        monkeypatch,
+    ):
+        config_path = tmp_path / "missing.yaml"
+
+        run_mock = Mock()
+        monkeypatch.setattr(
+            cli.subprocess,
+            "run",
+            run_mock,
+        )
+
+        result = runner.invoke(
+            cli.app,
+            [
+                "--config",
+                str(config_path),
+                "config",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "Configuration file not found" in result.output
+        assert str(config_path) in result.output
+
+        run_mock.assert_not_called()
+
+    def test_config_returns_xdg_open_exit_code(
+        self,
+        runner,
+        tmp_path,
+        monkeypatch,
+    ):
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "timezone: Europe/London\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.setattr(
+            cli.subprocess,
+            "run",
+            Mock(
+                return_value=SimpleNamespace(
+                    returncode=1,
+                )
+            ),
+        )
+
+        result = runner.invoke(
+            cli.app,
+            [
+                "--config",
+                str(config_path),
+                "config",
+            ],
+        )
+
+        assert result.exit_code == 1
+
+
+class TestCmdSyncPending:
+    def test_sync_pending_reports_when_data_is_current(
+        self,
+        runner,
+        monkeypatch,
+    ):
+        """Report when there is no outstanding data to synchronise."""
+        connection = Mock()
+
+        monkeypatch.setattr(
+            cli,
+            "load_config_and_open_database_from_context",
+            Mock(
+                return_value=(
+                    {},
+                    connection,
+                )
+            ),
+        )
+
+        monkeypatch.setattr(
+            cli,
+            "sync_pending",
+            Mock(
+                return_value={
+                    "status": "ok",
+                    "periods_processed": 0,
+                    "pending_count": 0,
+                    "first_pending": None,
+                    "last_pending": None,
+                    "quota_resets_in_seconds": None,
+                }
+            ),
+        )
+
+        result = runner.invoke(
+            cli.app,
+            [
+                "sync-pending",
+            ],
+        )
+
+        assert result.exit_code == 0
+
+        assert "All data is already synchronised." in result.output
+
+        connection.close.assert_called_once()
+
+    def test_sync_pending_reports_success(
+        self,
+        runner,
+        monkeypatch,
+    ):
+        """Report successful processing of outstanding ranges."""
+        connection = Mock()
+
+        monkeypatch.setattr(
+            cli,
+            "load_config_and_open_database_from_context",
+            Mock(
+                return_value=(
+                    {},
+                    connection,
+                )
+            ),
+        )
+
+        monkeypatch.setattr(
+            cli,
+            "sync_pending",
+            Mock(
+                return_value={
+                    "status": "ok",
+                    "periods_processed": 3,
+                    "pending_count": 0,
+                    "first_pending": None,
+                    "last_pending": None,
+                    "quota_resets_in_seconds": None,
+                }
+            ),
+        )
+
+        result = runner.invoke(
+            cli.app,
+            [
+                "sync-pending",
+            ],
+        )
+
+        assert result.exit_code == 0
+
+        assert "Synchronisation complete." in result.output
+
+        assert "3 pending range(s) processed." in result.output
+
+        connection.close.assert_called_once()
+
+    def test_sync_pending_reports_quota_exhaustion(
+        self,
+        runner,
+        monkeypatch,
+    ):
+        """Report remaining work and quota reset after exhaustion."""
+        connection = Mock()
+
+        monkeypatch.setattr(
+            cli,
+            "load_config_and_open_database_from_context",
+            Mock(
+                return_value=(
+                    {},
+                    connection,
+                )
+            ),
+        )
+
+        monkeypatch.setattr(
+            cli,
+            "sync_pending",
+            Mock(
+                return_value={
+                    "status": "quota_exhausted",
+                    "periods_processed": 2,
+                    "pending_count": 17,
+                    "first_pending": "2026-10-20",
+                    "last_pending": "2026-11-05",
+                    "quota_remaining": 0,
+                    "quota_resets_in_seconds": 420,
+                }
+            ),
+        )
+
+        result = runner.invoke(
+            cli.app,
+            [
+                "sync-pending",
+            ],
+        )
+
+        assert result.exit_code == 2
+
+        assert "Toggl quota exhausted." in result.output
+
+        assert "All successfully retrieved data has been saved." in result.output
+
+        assert "17 date(s) remain pending." in result.output
+
+        assert "Pending range: " "2026-10-20 to 2026-11-05" in result.output
+
+        assert "Quota resets in approximately " "7 minute(s)." in result.output
+
+        assert (
+            "Run 'stanwell sync-pending' again "
+            "after the quota has reset." in result.output
+        )
+
+        connection.close.assert_called_once()
+
+    def test_sync_pending_reports_failure(
+        self,
+        runner,
+        monkeypatch,
+    ):
+        """Report an unexpected synchronisation error."""
+        connection = Mock()
+
+        monkeypatch.setattr(
+            cli,
+            "load_config_and_open_database_from_context",
+            Mock(
+                return_value=(
+                    {},
+                    connection,
+                )
+            ),
+        )
+
+        monkeypatch.setattr(
+            cli,
+            "sync_pending",
+            Mock(side_effect=RuntimeError("Something went wrong.")),
+        )
+
+        result = runner.invoke(
+            cli.app,
+            [
+                "sync-pending",
+            ],
+        )
+
+        assert result.exit_code == 1
+
+        assert "Synchronisation failed: " "Something went wrong." in result.output
+
+        connection.close.assert_called_once()
