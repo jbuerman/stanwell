@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] - 2026-11-19
 ### Added
 - `sync-pending` replaces `refresh-pending` and `sync-missing` and downloads dates that are either missing or have been
     marked as refresh by `refresh`.
