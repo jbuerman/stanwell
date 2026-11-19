@@ -18,6 +18,7 @@ from typing import Annotated, Any
 import typer
 import yaml
 
+from stanwell.configuration import DATABASE_PATH
 from stanwell.data_repository.database_schema import (
     initialise_database,
 )
@@ -29,6 +30,7 @@ from stanwell.toggl.sync import (
     sync_pending,
 )
 from stanwell.ui.cli.cli_util import (
+    default_config_path,
     get_dashboard_path,
     load_config_and_open_database_from_context,
 )
@@ -43,33 +45,37 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 
-DEFAULT_CONFIG_PATH = Path.home() / ".config" / "stanwell" / "config.yaml"
-
 
 @app.callback()
 def main_callback(
     context: typer.Context,
     config: Annotated[
-        Path,
+        Path | None,
         typer.Option(
             "--config",
             "-c",
             help="Path to the configuration file.",
         ),
-    ] = DEFAULT_CONFIG_PATH,
+    ] = None,
 ) -> None:
     """Store CLI-wide configuration in the Typer context.
 
     Parameters
     ----------
     context : typer.Context
-        Typer context shared with subcommands.
-    config : Path
-        Path to the application configuration file.
+        Typer command context.
+    config : pathlib.Path or None
+        Explicit configuration path. If omitted, use the Stanwell
+        default configuration file beneath the current user's home directory.
 
     """
+    if config is None:
+        config_path = default_config_path()
+    else:
+        config_path = config
+
     context.ensure_object(dict)
-    context.obj["config_path"] = config
+    context.obj["config_path"] = config_path
 
 
 @app.command(
@@ -138,16 +144,16 @@ def cmd_init(
             default=str(date.today()),
         )
 
-        database_path = config_path.parent / "time_tracking.db"
+        database_path = config_path.parent / DATABASE_PATH
 
         config = {
             "toggl_api_token": toggl_token,
             "workspace_id": workspace_id,
-            "database_path": str(database_path),
+            "database_path": DATABASE_PATH,
             "workday_hours": workday_hours,
             "core_start": core_start,
             "core_end": core_end,
-            "tracking_start_date": (tracking_start_date),
+            "tracking_start_date": tracking_start_date,
         }
 
         config_path.parent.mkdir(

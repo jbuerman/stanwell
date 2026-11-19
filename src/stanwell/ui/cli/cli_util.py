@@ -59,3 +59,15 @@ def load_config_and_open_database_from_context(
     config, connection = load_config_and_open_database(config_path)
 
     return config, connection
+
+
+def default_config_path() -> Path:
+    """Return the default Stanwell configuration path.
+
+    Returns
+    -------
+    pathlib.Path
+        Path to ``config.yaml`` in the Stanwell configuration directory
+        beneath the current user's home directory.
+    """
+    return Path.home() / ".config" / "stanwell" / "config.yaml"
