@@ -4,6 +4,7 @@
 ### Added
 - `sync-pending` replaces `refresh-pending` and `sync-missing` and downloads dates that are either missing or have been
     marked as refresh by `refresh`.
+- `pipx` installation instructions in getting started. 
 
 ### Removed
 - `refresh-pending` covered by `sync-pending`.
