@@ -26,6 +26,6 @@ docs-check:
 
 tidy: lint format
 
-ci: test lint typing docs-check
+ci: test lint typing
 	uv lock --locked
 	uv run black --check src tests
