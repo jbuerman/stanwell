@@ -53,6 +53,7 @@ Run the CI checks locally:
 
 ```bash
 uv run make ci
+uv run make docs-check
 ```
 
 ### Documentation

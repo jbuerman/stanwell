@@ -6,6 +6,9 @@ test:
 lint:
 	uv run ruff check . --fix
 
+typing:
+	uv run mypy -p stanwell
+
 format:
 	uv run black src tests
 
@@ -23,9 +26,6 @@ docs-check:
 
 tidy: lint format
 
-ci:
-	uv run pytest
-	uv run ruff check .
-	uv run mypy -p stanwell
+ci: test lint typing
 	uv lock --locked
 	uv run black --check src tests

@@ -2,11 +2,43 @@ Getting started
 ===============
 
 Stanwell analyses time entries recorded in
-`Toggl <https://toggl.com/>`_. Before initialising the application, you will
-need:
+`Toggl <https://toggl.com/>`_. To get started, you will need:
 
+* a Toggl account;
 * a Toggl API token;
 * the ID of the Toggl workspace containing your time entries.
+
+Installing Stanwell
+-------------------
+
+Stanwell is distributed through PyPI. The recommended way to install it is
+with ``pipx``, which installs Python command-line applications in isolated
+environments while making their commands available from your shell:
+
+.. code-block:: console
+
+   pipx install stanwell
+
+You can confirm that Stanwell is available with:
+
+.. code-block:: console
+
+   stanwell --help
+
+Shell completion
+----------------
+
+Stanwell can install command completion for your current shell. This allows
+commands and options to be completed by pressing ``Tab``.
+
+To install shell completion, run:
+
+.. code-block:: console
+
+   stanwell --install-completion
+
+Follow any instructions displayed by the command. You may need to restart
+your shell before completion becomes available.
 
 Getting your Toggl API token
 ----------------------------
@@ -96,8 +128,8 @@ data:
 
    stanwell sync-pending
 
-This downloads data for dates that are not already stored in the local
-database.
+This downloads any data that still requires synchronisation, including dates
+that have not previously been downloaded and dates marked for refresh.
 
 You can check the contents of the local database with:
 
