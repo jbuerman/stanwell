@@ -9,6 +9,9 @@
 - `refresh-pending` covered by `sync-pending`.
 - `refresh-pending` covered by `sync-pending`.
 
+### Fixed
+- Wrong default location of database ({issue}`3`).
+
 ## [0.1.2] - 2026-11-04
 ### Added
 - RTD documentation.

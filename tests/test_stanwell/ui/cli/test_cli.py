@@ -1,7 +1,9 @@
+import sqlite3
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from stanwell.ui.cli import cli
@@ -667,3 +669,78 @@ class TestCmdSyncPending:
         assert "Synchronisation failed: " "Something went wrong." in result.output
 
         connection.close.assert_called_once()
+
+
+class TestCmdInit:
+
+    def test_init_creates_config_and_database_in_default_location(
+        self,
+        runner,
+        monkeypatch,
+        tmp_path,
+    ):
+        """Create config and database beneath a temporary home directory."""
+        monkeypatch.setenv(
+            "HOME",
+            str(tmp_path),
+        )
+
+        result = runner.invoke(
+            cli.app,
+            ["init"],
+            input="test-token\n" "123456\n" "7\n" "\n" "\n" "2025-10-01\n",
+        )
+
+        assert result.exit_code == 0
+
+        application_directory = tmp_path / ".config" / "stanwell"
+
+        config_path = application_directory / "config.yaml"
+
+        database_path = application_directory / "time_tracking.db"
+
+        assert application_directory.is_dir()
+        assert config_path.is_file()
+        assert database_path.is_file()
+
+        with config_path.open(
+            encoding="utf-8",
+        ) as config_file:
+            config = yaml.safe_load(config_file)
+
+        assert config["toggl_api_token"] == "test-token"
+        assert config["workspace_id"] == 123456
+        assert config["database_path"] == "time_tracking.db"
+        assert config["workday_hours"] == 7
+        assert config["core_start"] == "09:00"
+        assert config["core_end"] == "17:00"
+        assert config["tracking_start_date"] == "2025-10-01"
+
+        connection = sqlite3.connect(database_path)
+
+        try:
+            table_rows = connection.execute("""
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                """).fetchall()
+
+            tables = {row[0] for row in table_rows}
+
+            assert {
+                "covered_days",
+                "data_coverage",
+                "day_exceptions",
+                "exception_types",
+                "projects",
+                "sync_log",
+                "time_entries",
+                "time_entry_tags",
+            } <= tables
+
+        finally:
+            connection.close()
+
+        assert f"Configuration written to {config_path}" in result.output
+
+        assert f"Database initialised at {database_path}" in result.output

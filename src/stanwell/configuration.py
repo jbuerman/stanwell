@@ -14,7 +14,7 @@ import yaml
 
 from stanwell.data_repository.db import connect_db
 
-DATABASE_PATH = "toggl_time.db"
+DATABASE_PATH = "time_tracking.db"
 TIMEZONE = "Europe/London"
 WORKDAY_HOURS = 7.5
 WORKING_DAYS = [0, 1, 2, 3, 4]
